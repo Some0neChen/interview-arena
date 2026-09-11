@@ -1,0 +1,22 @@
+# 构建产物
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+generated/
+
+# 运行时产物
+diaglogs/
+*.log
+.cache/
+
+# 编辑器/系统
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+test/

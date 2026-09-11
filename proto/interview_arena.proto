@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package arena;
+
+enum QuestionDifficulty {
+  UNSPECIFIED = 0;
+  EASY = 1;
+  MEDIUM = 2;
+  HARD = 3;
+}
+
+message GetQuestionRequest {
+  uint64 question_id = 1;
+  uint32 mock_delay_ms = 2;
+}
+
+message GetQuestionResponse {
+  uint64 question_id = 1;
+  string title = 2;
+  QuestionDifficulty difficulty = 3;
+  uint32 torture_score = 4;
+  string source = 5;
+}
+
+service InterviewArena {
+  rpc GetQuestion(GetQuestionRequest) returns (GetQuestionResponse);
+};
