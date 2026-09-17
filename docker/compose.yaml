@@ -1,0 +1,36 @@
+# InterviewArena 本地开发依赖：MySQL
+#
+# 启动：docker compose -f docker/compose.yaml up -d
+# 查看：docker compose -f docker/compose.yaml ps
+# 日志：docker compose -f docker/compose.yaml logs -f mysql
+# 停止：docker compose -f docker/compose.yaml down      （保留数据卷）
+# 清库：docker compose -f docker/compose.yaml down -v   （连数据一起删）
+name: interview-arena
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: arena-mysql
+    command:
+      # M1 先降低客户端握手复杂度；后续讲 caching_sha2_password + TLS 时再切换
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: root_dev_only
+      MYSQL_DATABASE: arena          # 首次启动自动建库
+      MYSQL_USER: arena              # 自动建应用账号（只对 arena 库有权限）
+      MYSQL_PASSWORD: arena_dev_only
+    ports:
+      - "127.0.0.1:3306:3306"        # 只暴露给本机，容器内仍是 3306
+    volumes:
+      - mysql_data:/var/lib/mysql    # 数据落在宿主机磁盘，删容器不丢
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  mysql_data:

@@ -9,6 +9,8 @@ find_package(Protobuf REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 # 获取本机spdlog
 find_package(spdlog REQUIRED)
+# 获取本机Boost
+find_package(Boost REQUIRED)
 
 # 生成proto文件
 find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
@@ -53,6 +55,7 @@ add_executable(arena_server server/main.cpp)
 target_include_directories(arena_server PRIVATE ${PUB_INCLUDE_DIR})
 target_link_libraries(arena_server PRIVATE arena_proto)
 target_link_libraries(arena_server PRIVATE spdlog::spdlog)
+target_link_libraries(arena_server PRIVATE Boost::boost)
 
 add_executable(arena_client client/main.cpp)
 target_include_directories(arena_client PRIVATE ${PUB_INCLUDE_DIR})
