@@ -19,8 +19,8 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root_dev_only
       MYSQL_DATABASE: arena          # 首次启动自动建库
-      MYSQL_USER: arena              # 自动建应用账号（只对 arena 库有权限）
-      MYSQL_PASSWORD: arena_dev_only
+      MYSQL_USER: a              # 自动建应用账号（只对 arena 库有权限）
+      MYSQL_PASSWORD: 111111
     ports:
       - "127.0.0.1:3306:3306"        # 只暴露给本机，容器内仍是 3306
     volumes:

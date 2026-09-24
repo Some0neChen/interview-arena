@@ -11,6 +11,8 @@ find_package(gRPC CONFIG REQUIRED)
 find_package(spdlog REQUIRED)
 # 获取本机Boost
 find_package(Boost REQUIRED)
+# 获取SSL连接库
+find_package(OpenSSL REQUIRED)
 
 # 生成proto文件
 find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
@@ -61,3 +63,11 @@ add_executable(arena_client client/main.cpp)
 target_include_directories(arena_client PRIVATE ${PUB_INCLUDE_DIR})
 target_link_libraries(arena_client PRIVATE arena_proto)
 target_link_libraries(arena_client PRIVATE spdlog::spdlog)
+
+add_executable(mysql_smoke test/mysql_smoke.cpp)
+target_link_libraries(mysql_smoke PRIVATE
+    Boost::boost
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)

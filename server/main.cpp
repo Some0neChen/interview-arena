@@ -72,7 +72,7 @@ int main() {
         // 同步等待信号触发
         if (sigwait(&stop_signals, &recived_signal) == 0) {
             // 关闭服务端
-            // 给予三秒延迟，三秒一到直接关闭服务，防止里面还有定时任务长时间拖着等待
+            // 给予三秒延三秒到期后取消剩余RPC，防止里面还有定时任务长时间拖着等待
             g_server->Shutdown(std::chrono::system_clock::now() + std::chrono::seconds(3));
         }
     });
