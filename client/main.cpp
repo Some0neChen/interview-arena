@@ -93,5 +93,5 @@ int main(int argc, char** argv)
                   << ", message: " << status.error_message() << std::endl;
     }
 
-    return 0;
+    return status.ok() ? 0 : 1;
 }

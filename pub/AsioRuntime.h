@@ -21,27 +21,12 @@
 #include <boost/asio.hpp>
 #include <spdlog/spdlog.h>
 
+// 基于boost::asio的协程运行时，提供线程池和延时任务功能
 class AsioRuntime {
     size_t thread_nums_ = 0;
     boost::asio::io_context ioc_;
     std::optional<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> guard_;
     std::vector<std::thread> threads_;
-
-    void stop()
-    {
-        if (!guard_.has_value()) {
-            return;
-        }
-        guard_.reset();
-        ioc_.stop();
-        for (auto& t : threads_) {
-            if (t.joinable()) {
-                t.join();
-            }
-        }
-        threads_.clear();
-        ioc_.restart();
-    }
 public:
     struct DelayTask : public std::enable_shared_from_this<DelayTask> {
         DelayTask(AsioRuntime* runtime) : runtime_(runtime), timer_(runtime->ioc_) {}
@@ -75,6 +60,22 @@ public:
     };
 public:
     explicit AsioRuntime(size_t num) : thread_nums_(num) {};
+
+    void stop()
+    {
+        if (!guard_.has_value()) {
+            return;
+        }
+        guard_.reset();
+        // ioc_.stop();
+        for (auto& t : threads_) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+        threads_.clear();
+        ioc_.restart();
+    }
 
     ~AsioRuntime()
     {
@@ -112,5 +113,9 @@ public:
     {
         auto delay_task = std::make_shared<DelayTask>(this);
         return delay_task;
+    }
+
+    auto& get_io_context() {
+        return ioc_;
     }
 };

@@ -1,4 +1,7 @@
 #include <bits/types/sigset_t.h>
+#include <boost/asio/io_context.hpp>
+#include <boost/mysql/pool_params.hpp>
+#include <boost/mysql/connection_pool.hpp>
 #include <chrono>
 #include <csignal>
 #include <grpc/grpc.h>
@@ -20,6 +23,20 @@
 
 std::unique_ptr<grpc::Server> g_server;
 
+std::unique_ptr<QuestionRepository> create_and_init_mysql_conn(boost::asio::io_context &ioc)
+{
+    boost::mysql::pool_params pool_param;
+    pool_param.server_address.emplace_host_and_port("127.0.0.1", 3306);
+    pool_param.initial_size = 1;
+    pool_param.max_size = 1;
+    pool_param.thread_safe = true;
+    pool_param.username = "a";
+    pool_param.password = "111111";
+    pool_param.database = "arena";
+    SPDLOG_DEBUG("Create and init mysql QuestionRepository");
+    return std::make_unique<QuestionRepository>(std::move(pool_param), ioc);
+}
+
 int main() {
     // 注册退出信号，先选择无视，另起线程跟踪，不插入原有主线程打断执行
     sigset_t stop_signals;
@@ -39,8 +56,10 @@ int main() {
     auto runtime = std::make_shared<AsioRuntime>(8);
     runtime->start();
 
+    auto question_repository = create_and_init_mysql_conn(runtime->get_io_context());
+
     std::string server_address("127.0.0.1:13401");
-    auto service_handle = std::make_unique<InterviewArenaServiceImpl>(runtime);
+    auto service_handle = std::make_unique<InterviewArenaServiceImpl>(runtime, question_repository.get());
     grpc::ServerBuilder net_server_builder;
 
     // 绑定监听端口
@@ -67,23 +86,28 @@ int main() {
     g_server = net_server_builder.BuildAndStart();
     SPDLOG_INFO("[Server] Server listening on {}", server_address);
     // 另起线程监听退出信号
-    std::thread signal_handle_thread([&stop_signals]() {
+    std::thread signal_handle_thread([&stop_signals, &question_repository, &runtime]() {
+
         int recived_signal = 0;
         // 同步等待信号触发
         if (sigwait(&stop_signals, &recived_signal) == 0) {
             // 关闭服务端
             // 给予三秒延三秒到期后取消剩余RPC，防止里面还有定时任务长时间拖着等待
             g_server->Shutdown(std::chrono::system_clock::now() + std::chrono::seconds(3));
+            // 关闭mysql连接池
+            question_repository->stop();
+            runtime->stop();
         }
     });
 
     g_server->Wait();
 
     SPDLOG_INFO("[Server] Server stopped.");
-    spdlog::shutdown();
 
     if (signal_handle_thread.joinable()) {
         signal_handle_thread.join();
     }
+
+    spdlog::shutdown();
     return 0;
 }

@@ -9,8 +9,9 @@ find_package(Protobuf REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 # 获取本机spdlog
 find_package(spdlog REQUIRED)
-# 获取本机Boost
-find_package(Boost REQUIRED)
+# 获取本机Boost, 1.88.0 mysql扩展了连接池
+find_package(Boost 1.88.0 CONFIG REQUIRED COMPONENTS charconv)
+find_package(Threads REQUIRED)
 # 获取SSL连接库
 find_package(OpenSSL REQUIRED)
 
@@ -55,9 +56,14 @@ target_link_libraries(arena_proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
 
 add_executable(arena_server server/main.cpp)
 target_include_directories(arena_server PRIVATE ${PUB_INCLUDE_DIR})
-target_link_libraries(arena_server PRIVATE arena_proto)
-target_link_libraries(arena_server PRIVATE spdlog::spdlog)
-target_link_libraries(arena_server PRIVATE Boost::boost)
+target_link_libraries(arena_server PRIVATE
+    arena_proto
+    spdlog::spdlog
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    Boost::charconv
+)
 
 add_executable(arena_client client/main.cpp)
 target_include_directories(arena_client PRIVATE ${PUB_INCLUDE_DIR})
@@ -66,8 +72,26 @@ target_link_libraries(arena_client PRIVATE spdlog::spdlog)
 
 add_executable(mysql_smoke test/mysql_smoke.cpp)
 target_link_libraries(mysql_smoke PRIVATE
-    Boost::boost
+    Boost::charconv
     Threads::Threads
     OpenSSL::SSL
     OpenSSL::Crypto
 )
+
+add_executable(mysql_async_smoke test/mysql_async_smoke.cpp)
+target_link_libraries(mysql_async_smoke PRIVATE
+    Boost::charconv
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+add_executable(mysql_async_pool_smoke test/mysql_async_pool_smoke.cpp)
+target_link_libraries(mysql_async_pool_smoke PRIVATE
+    Boost::charconv
+    Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+add_executable(interview_test test/interview_test.cpp)
