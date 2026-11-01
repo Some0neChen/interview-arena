@@ -3,6 +3,7 @@
 #include "interview_arena.grpc.pb.h"
 #include "interview_arena.pb.h"
 #include "GetQuestionReactor.h"
+#include <grpcpp/support/server_callback.h>
 #include <memory>
 
 class InterviewArenaServiceImpl final : public arena::InterviewArena::CallbackService {

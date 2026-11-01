@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package trade;
+
+// 客户端查询trade用户账户数据
+message GetTradeAccountRequest {
+    uint64 account_id = 1;
+    uint32 mock_delay_ms = 2;
+}
+
+message GetTradeAccountResponse {
+    uint64 account_id = 1;
+    string account_name = 2;
+    uint64 initial_budget_cent = 3;
+    uint64 available_cent = 4;
+    uint64 frozen_cent = 5;
+    uint64 spent_cent = 6;
+}
+
+// 客户端下单订单
+message SubmitOrderRequest {
+    uint64 account_id = 1;
+    string client_order_id = 2;
+    string symbol = 3;
+    uint64 limit_price_cent = 4;
+    uint64 quantity = 5;
+}
+
+enum OrderState {
+    ORDER_STATE_UNSPECIFIED = 0;
+
+    // 旧版本已不再使用的状态码，后续不再服用
+    reserved 1, 3, 4;
+    reserved    "ORDER_STATE_INVALID_ARGUMENT",
+                "ORDER_STATE_NOT_FOUND",
+                "ORDER_STATE_FAILED_PRECONDITION";
+
+    ORDER_STATE_LOCAL_ACCEPTED = 5;     // 本地事务已提交，订单与冻结已初始化
+    ORDER_STATE_DISPATCHING = 6;       // 订单已派发，等待行情系统处理
+    ORDER_STATE_BROKER_ACCEPTED = 7;    // 券商确认接收
+
+    ORDER_STATE_FILLED = 8;             // 已确认全部成交
+    ORDER_STATE_CANCELLED = 9;          // 已确认撤销，资金已按事务释放
+}
+
+message SubmitOrderResponse {
+    uint64 order_id = 1;
+    OrderState state = 2;
+}
+
+message GetOrderRequest {
+    uint64 account_id = 1;
+    string client_order_id = 2;
+}
+
+message GetOrderResponse {
+    uint64 order_id = 1;
+    string symbol = 2;
+    uint64 account_id = 3;
+    uint64 limit_price_cent = 4;
+    uint64 quantity = 5;
+    uint64 reserved_cent = 6;
+    OrderState state = 7;
+    uint64 version = 8;
+}
+
+message CancelOrderRequest {
+    uint64 account_id = 1;
+    string client_order_id = 2;
+}
+
+message CancelOrderResponse {
+    uint64 order_id = 1;
+    OrderState state = 2;
+}
+
+service TradeAccount {
+    rpc GetAccount(GetTradeAccountRequest) returns (GetTradeAccountResponse);
+    rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse);
+    rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+    rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+};

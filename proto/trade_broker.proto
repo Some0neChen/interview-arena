@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package broker;
+
+// 券商接收外界服务派单订单
+message SubmitOrderRequest {
+    uint64 gateway_order_id = 1;
+    string gateway_namespace = 2;
+    uint64 account_it = 3;
+    string symbol = 4;
+    uint64 limit_price_cent = 5;
+    uint64 quantity = 6;
+}
+
+enum BrokerOrderState {
+    BROKER_ORDER_STATE_UNSPECIFIED  = 0; // 未赋值，不作为有效订单状态落库
+    BROKER_ORDER_STATE_ACCEPTED     = 1; // 已接收，尚未成交
+    BROKER_ORDER_STATE_FILLED       = 2; // 已全量成交
+    BROKER_ORDER_STATE_REJECTED     = 3; // 已明确拒绝
+    BROKER_ORDER_STATE_CANCELLED    = 4; // 已成功撤销
+}
+
+// 券商回复当前派单结果
+message SubmitOrderResponse {
+    uint64 broker_order_id = 1;
+    BrokerOrderState state = 2;
+}
+
+message GetBrokerOrderRequest {
+    uint64 gateway_order_id = 1;
+    string gateway_namespace = 2;
+}
+
+message GetBrokerOrderResponse {
+    uint64 broker_order_id = 1;
+    string gateway_namespace = 2;
+    uint64 gateway_order_id = 3;
+    uint64 account_id = 4;
+    string symbol = 5;
+    uint64 quantity = 6;
+    uint64 limit_price_cent = 7;
+    BrokerOrderState state = 8;
+    uint64 filled_quantity = 9;
+    uint64 fill_price_cent = 10;
+    uint64 broker_version = 12;
+    string reject_reason = 11;
+}
+
+service TradeBroker {
+    rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse);
+    rpc GetOrder(GetBrokerOrderRequest) returns (GetBrokerOrderResponse);
+    rpc CancelOrder(GetBrokerOrderRequest) returns (GetBrokerOrderResponse);
+};

@@ -4,6 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(Threads REQUIRED)
 # 获取本机gRpc及protobuf
 find_package(Protobuf REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
@@ -11,9 +12,10 @@ find_package(gRPC CONFIG REQUIRED)
 find_package(spdlog REQUIRED)
 # 获取本机Boost, 1.88.0 mysql扩展了连接池
 find_package(Boost 1.88.0 CONFIG REQUIRED COMPONENTS charconv)
-find_package(Threads REQUIRED)
 # 获取SSL连接库
 find_package(OpenSSL REQUIRED)
+# JSON库
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # 生成proto文件
 find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
@@ -24,74 +26,93 @@ set(GEN_DIR
 
 file(MAKE_DIRECTORY "${GEN_DIR}")
 
+file(MAKE_DIRECTORY "${GEN_DIR}/interview_arena")
 add_custom_command(
     OUTPUT 
-        "${GEN_DIR}/interview_arena.pb.cc"
-        "${GEN_DIR}/interview_arena.pb.h"
-        "${GEN_DIR}/interview_arena.grpc.pb.cc"
-        "${GEN_DIR}/interview_arena.grpc.pb.h"
+        "${GEN_DIR}/interview_arena/interview_arena.pb.cc"
+        "${GEN_DIR}/interview_arena/interview_arena.pb.h"
+        "${GEN_DIR}/interview_arena/interview_arena.grpc.pb.cc"
+        "${GEN_DIR}/interview_arena/interview_arena.grpc.pb.h"
+    COMMAND
+        ${PROTOBUF_PROTOC_EXECUTABLE}
+            --proto_path="${CMAKE_CURRENT_SOURCE_DIR}/test/InterviewArena"
+            --cpp_out="${GEN_DIR}/interview_arena"
+            --grpc_out="${GEN_DIR}/interview_arena"
+            --plugin=protoc-gen-grpc="${GRPC_CPP_PLUGIN}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/test/InterviewArena/interview_arena.proto"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/InterviewArena/interview_arena.proto"
+    COMMENT
+        "Generating gRPC and Protobuf source files for interview_arena.proto"
+)
+
+add_library(arena_proto STATIC
+    "${GEN_DIR}/interview_arena/interview_arena.pb.cc"
+    "${GEN_DIR}/interview_arena/interview_arena.grpc.pb.cc"
+)
+
+target_include_directories(arena_proto PUBLIC "${GEN_DIR}/interview_arena")
+target_link_libraries(arena_proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
+
+add_custom_command(
+    OUTPUT 
+        "${GEN_DIR}/trade_account.pb.cc"
+        "${GEN_DIR}/trade_account.pb.h"
+        "${GEN_DIR}/trade_account.grpc.pb.cc"
+        "${GEN_DIR}/trade_account.grpc.pb.h"
     COMMAND
         ${PROTOBUF_PROTOC_EXECUTABLE}
             --proto_path="${CMAKE_CURRENT_SOURCE_DIR}/proto"
             --cpp_out="${GEN_DIR}"
             --grpc_out="${GEN_DIR}"
             --plugin=protoc-gen-grpc="${GRPC_CPP_PLUGIN}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/proto/interview_arena.proto"
+            "${CMAKE_CURRENT_SOURCE_DIR}/proto/trade_account.proto"
     DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/proto/interview_arena.proto"
+        "${CMAKE_CURRENT_SOURCE_DIR}/proto/trade_account.proto"
     COMMENT
-        "Generating gRPC and Protobuf source files for interview_arena.proto"
+        "Generating gRPC and Protobuf source files for trade_account.proto"
 )
 
-add_library(arena_proto STATIC
-    "${GEN_DIR}/interview_arena.pb.cc"
-    "${GEN_DIR}/interview_arena.grpc.pb.cc"
+add_library(trade_account_proto STATIC
+    "${GEN_DIR}/trade_account.grpc.pb.cc"
+    "${GEN_DIR}/trade_account.pb.cc"
 )
 
-# 设置头文件搜索路径和链接库
+target_include_directories(trade_account_proto PUBLIC "${GEN_DIR}")
+target_link_libraries(trade_account_proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
+
+add_custom_command(
+    OUTPUT 
+        "${GEN_DIR}/trade_broker.pb.cc"
+        "${GEN_DIR}/trade_broker.pb.h"
+        "${GEN_DIR}/trade_broker.grpc.pb.cc"
+        "${GEN_DIR}/trade_broker.grpc.pb.h"
+    COMMAND
+        ${PROTOBUF_PROTOC_EXECUTABLE}
+            --proto_path="${CMAKE_CURRENT_SOURCE_DIR}/proto"
+            --cpp_out="${GEN_DIR}"
+            --grpc_out="${GEN_DIR}"
+            --plugin=protoc-gen-grpc="${GRPC_CPP_PLUGIN}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/proto/trade_broker.proto"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/proto/trade_broker.proto"
+    COMMENT
+        "Generating gRPC and Protobuf source files for trade_broker.proto"
+)
+
+add_library(trade_broker_proto STATIC
+    "${GEN_DIR}/trade_broker.grpc.pb.cc"
+    "${GEN_DIR}/trade_broker.pb.cc"
+)
+
+target_include_directories(trade_broker_proto PUBLIC "${GEN_DIR}")
+target_link_libraries(trade_broker_proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
+
 set(PUB_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pub")
+# 将可执行程序都放在 ${CMAKE_CURRENT_SOURCE_DIR} 下面
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-target_include_directories(arena_proto PUBLIC "${GEN_DIR}")
-target_link_libraries(arena_proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
-
-add_executable(arena_server server/main.cpp)
-target_include_directories(arena_server PRIVATE ${PUB_INCLUDE_DIR})
-target_link_libraries(arena_server PRIVATE
-    arena_proto
-    spdlog::spdlog
-    Threads::Threads
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    Boost::charconv
-)
-
-add_executable(arena_client client/main.cpp)
-target_include_directories(arena_client PRIVATE ${PUB_INCLUDE_DIR})
-target_link_libraries(arena_client PRIVATE arena_proto)
-target_link_libraries(arena_client PRIVATE spdlog::spdlog)
-
-add_executable(mysql_smoke test/mysql_smoke.cpp)
-target_link_libraries(mysql_smoke PRIVATE
-    Boost::charconv
-    Threads::Threads
-    OpenSSL::SSL
-    OpenSSL::Crypto
-)
-
-add_executable(mysql_async_smoke test/mysql_async_smoke.cpp)
-target_link_libraries(mysql_async_smoke PRIVATE
-    Boost::charconv
-    Threads::Threads
-    OpenSSL::SSL
-    OpenSSL::Crypto
-)
-
-add_executable(mysql_async_pool_smoke test/mysql_async_pool_smoke.cpp)
-target_link_libraries(mysql_async_pool_smoke PRIVATE
-    Boost::charconv
-    Threads::Threads
-    OpenSSL::SSL
-    OpenSSL::Crypto
-)
-
-add_executable(interview_test test/interview_test.cpp)
+add_subdirectory(client)
+add_subdirectory(server)
+add_subdirectory(test)
+add_subdirectory(broker)

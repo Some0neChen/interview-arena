@@ -59,7 +59,7 @@ public:
 
     boost::asio::awaitable<std::optional<Question>> async_get_question_by_id(const uint64_t qid)
     {
-        co_return co_await boost::asio::co_spawn(strand_, [this, qid]() -> boost::asio::awaitable<std::optional<Question>>{
+        co_return co_await boost::asio::co_spawn(strand_, [this, qid]() -> boost::asio::awaitable<std::optional<Question>> {
             boost::mysql::results result;
             try {
                 {
