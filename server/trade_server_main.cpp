@@ -17,6 +17,7 @@
 #include <thread>
 #include "TradeAccountServiceImpl.h"
 #include "log_init.h"
+#include "OrderDispatcher.h"
 
 std::unique_ptr<grpc::Server> g_server;
 
@@ -62,6 +63,10 @@ int main(int argc, char** argv)
     // 创建 account 数据库管理类
     auto account_repository = create_mysql_account_mgr(runtime->get_io_context());
 
+    // 创建后台派单器
+    auto order_dispatcher = std::make_unique<OrderDispatcher>("SolCelestial69", account_repository.get(), runtime.get(), "127.0.0.1:3666");
+    order_dispatcher->start();
+
     // 创建 account 表管理服务
     auto account_service_handle = std::make_unique<TradeAccountServiceImpl>(&runtime->get_io_context(), account_repository.get());
 
@@ -87,13 +92,14 @@ int main(int argc, char** argv)
     g_server = builder.BuildAndStart();
     SPDLOG_INFO("[Server] Server listening on {}", server_address);
     // 用线程处理进程退出信号接收与处理
-    std::thread signal_handle_thread([&stop_signals, &account_repository, &runtime]() {
+    std::thread signal_handle_thread([&stop_signals, &account_repository, &runtime, &order_dispatcher]() {
         int signal = 0;
         // 同步等待信号触发后执行
         if (sigwait(&stop_signals, &signal) == 0) {
             // 关闭服务端
             // 给予三秒延三秒到期后取消剩余gRPC任务，对有定时等待的任务超过3s后也执行cancel
             g_server->Shutdown(boost::asio::chrono::system_clock::now() +  boost::asio::chrono::seconds(3));
+            order_dispatcher->stop();
             account_repository->stop();
             runtime->stop();
         }

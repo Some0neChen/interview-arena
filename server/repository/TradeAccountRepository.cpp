@@ -17,6 +17,7 @@
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <utility>
+#include <vector>
 
 boost::asio::awaitable<bool> TradeAccountRepository::check_account_exist_by_id(uint64_t id, boost::mysql::pooled_connection& conn,
     boost::asio::chrono::time_point<std::chrono::steady_clock>& deadline)
@@ -565,4 +566,70 @@ boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<CancelOrderResu
         std::rethrow_exception(failure);
     }
     co_return std::make_pair(grpc::StatusCode::INTERNAL, std::nullopt);
+}
+
+boost::asio::awaitable<std::vector<std::pair<uint64_t, trade::OrderState>>> TradeAccountRepository::async_list_handle_order(uint16_t limit)
+{
+    std::vector<std::pair<uint64_t, trade::OrderState>> res;
+    auto deadline = boost::asio::chrono::steady_clock::now() + boost::asio::chrono::seconds(3);
+    // 保存连接状态，方便后续异常情况后结束连接
+    boost::mysql::pooled_connection conn;
+    std::exception_ptr failure;
+    bool closed_signal = false;
+    try {
+        conn = co_await pool_.async_get_connection(
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+        );
+        boost::mysql::results result;
+
+        // 查询获取orders表中单条记录
+        boost::mysql::error_code ec;
+        co_await conn->async_execute(
+            boost::mysql::with_params(
+                "SELECT order_id, state FROM orders "
+                "WHERE state IN ({}, {}, {}) ORDER BY order_id ASC LIMIT {};",
+                static_cast<uint16_t>(trade::OrderState::ORDER_STATE_LOCAL_ACCEPTED),
+                static_cast<uint16_t>(trade::OrderState::ORDER_STATE_DISPATCHING),
+                static_cast<uint16_t>(trade::OrderState::ORDER_STATE_BROKER_ACCEPTED), limit),
+            result,
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+        );
+
+        if (result.rows().empty()) {
+            co_return res;
+        }
+
+        auto row_size = result.rows().size();
+        res.reserve(row_size);
+
+        for (const auto& row : result.rows()) {
+            res.emplace_back(std::make_pair(row[0].as_uint64(), static_cast<trade::OrderState>(row[1].as_uint64())));
+        }
+
+        co_return res;
+    } catch (const boost::mysql::error_with_diagnostics& diag) {
+        failure = std::current_exception();
+        closed_signal = boost::mysql::is_fatal_error(diag.code());
+        SPDLOG_ERROR("MySQL error: {}.", diag.what());
+        SPDLOG_ERROR("Server message: {}", diag.get_diagnostics().server_message());
+    } catch (const boost::system::system_error& e) {
+        failure = std::current_exception();
+        SPDLOG_ERROR("mysql system_error failed: {}", e.what());
+        closed_signal = true;
+    } catch (const std::exception& e) {
+        failure = std::current_exception();
+        closed_signal = true;
+        SPDLOG_ERROR("mysql exception failed: {}", e.what());
+    }
+    if (failure) {
+        if (conn.valid() && closed_signal) {
+            // 判断为需要清理连接类型的异常错误
+            boost::mysql::error_code close_ec;
+            co_await conn->async_close(boost::asio::cancel_after(
+                boost::asio::chrono::milliseconds(300),
+                boost::asio::redirect_error(boost::asio::use_awaitable, close_ec)));
+        }
+        std::rethrow_exception(failure);
+    }
+    co_return res;
 }

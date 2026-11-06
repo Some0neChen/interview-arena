@@ -24,6 +24,7 @@
 #include <spdlog/spdlog.h>
 #include <string>
 #include <utility>
+#include <vector>
 
 struct Account {
     uint64_t account_id;
@@ -83,4 +84,5 @@ public:
         uint64_t account_id, const std::string& client_order_id);
     boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<CancelOrderResult>>> async_cancel_order(
         uint64_t account_id, const std::string& client_order_id);
+    boost::asio::awaitable<std::vector<std::pair<uint64_t, trade::OrderState>>> async_list_handle_order(uint16_t limit);
 };
