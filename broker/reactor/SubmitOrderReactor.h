@@ -30,7 +30,7 @@ class SubmitOrderReactor final : public grpc::ServerUnaryReactor {
         SubmitOrderRequest req = {
             .gateway_namespace = std::move(request.gateway_namespace()),
             .gateway_order_id = request.gateway_order_id(),
-            .account_id = request.account_it(),
+            .account_id = request.account_id(),
             .symbol = std::move(request.symbol()),
             .limit_price_cent = request.limit_price_cent(),
             .quantity = request.quantity()

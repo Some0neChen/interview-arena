@@ -41,6 +41,7 @@ enum OrderState {
 
     ORDER_STATE_FILLED = 8;             // 已确认全部成交
     ORDER_STATE_CANCELLED = 9;          // 已确认撤销，资金已按事务释放
+    ORDER_STATE_REJECTED = 10;          // 下单请求被拒绝
 }
 
 message SubmitOrderResponse {

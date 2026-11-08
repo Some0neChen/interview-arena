@@ -6,7 +6,7 @@ package broker;
 message SubmitOrderRequest {
     uint64 gateway_order_id = 1;
     string gateway_namespace = 2;
-    uint64 account_it = 3;
+    uint64 account_id = 3;
     string symbol = 4;
     uint64 limit_price_cent = 5;
     uint64 quantity = 6;

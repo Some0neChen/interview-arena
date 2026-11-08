@@ -218,7 +218,7 @@ boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<SubmitResult>>>
             boost::mysql::with_params(
                 "insert into fund_ledger (account_id, order_id, entry_type, amount_cent) "
                 "values({}, {}, {}, {});",
-                account_id, res.order_id, LEDGER_ENTRY_TYPE::ORDER_FREEZE, cost),
+                account_id, res.order_id, cast_type(LEDGER_ENTRY_TYPE::ORDER_FREEZE), cost),
             result,
             boost::asio::cancel_at(deadline, boost::asio::redirect_error(boost::asio::use_awaitable, ec))
         );
@@ -257,7 +257,7 @@ boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<SubmitResult>>>
             boost::mysql::with_params(
                 "insert into outbox_events (order_id, order_version, event_type, payload) "
                 "values({}, {}, {}, {});",
-                res.order_id, 1, OUTBOX_EVENT_TYPE::OUTBOX_EVENT_RECEIVED, payload.dump()),
+                res.order_id, 1, cast_type(OUTBOX_EVENT_TYPE::OUTBOX_EVENT_RECEIVED), payload.dump()),
             result,
             boost::asio::cancel_at(deadline, boost::asio::redirect_error(boost::asio::use_awaitable, ec))
         );
@@ -389,6 +389,68 @@ boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<Order>>> TradeA
     co_return std::make_pair(grpc::StatusCode::INTERNAL, std::nullopt);
 }
 
+boost::asio::awaitable<std::optional<OrderSubmitBrief>> TradeAccountRepository::async_get_order_submit_brief(uint64_t order_id)
+{
+    OrderSubmitBrief res;
+    auto deadline = boost::asio::chrono::steady_clock::now() + boost::asio::chrono::seconds(3);
+    // 保存连接状态，方便后续异常情况后结束连接
+    boost::mysql::pooled_connection conn;
+    std::exception_ptr failure;
+    bool closed_signal = false;
+    try {
+        conn = co_await pool_.async_get_connection(
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+        );
+        boost::mysql::results result;
+
+        // 查询获取orders表中单条记录
+        boost::mysql::error_code ec;
+        co_await conn->async_execute(
+            boost::mysql::with_params(
+                "SELECT account_id, symbol, limit_price_cent, quantity FROM orders "
+                "WHERE order_id = {};",
+                order_id),
+            result,
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+        );
+
+        if (result.rows().empty()) {
+            co_return std::nullopt;
+        }
+
+        auto row = result.rows()[0];
+        res.account_id = row[0].as_uint64();
+        res.symbol = row[1].as_string();
+        res.limit_price_cent = row[2].as_uint64();
+        res.quantity = row[3].as_uint64();
+        co_return res;
+    } catch (const boost::mysql::error_with_diagnostics& diag) {
+        failure = std::current_exception();
+        closed_signal = boost::mysql::is_fatal_error(diag.code());
+        SPDLOG_ERROR("MySQL error: {}.", diag.what());
+        SPDLOG_ERROR("Server message: {}", diag.get_diagnostics().server_message());
+    } catch (const boost::system::system_error& e) {
+        failure = std::current_exception();
+        SPDLOG_ERROR("mysql system_error failed: {}", e.what());
+        closed_signal = true;
+    } catch (const std::exception& e) {
+        failure = std::current_exception();
+        closed_signal = true;
+        SPDLOG_ERROR("mysql exception failed: {}", e.what());
+    }
+    if (failure) {
+        if (conn.valid() && closed_signal) {
+            // 判断为需要清理连接类型的异常错误
+            boost::mysql::error_code close_ec;
+            co_await conn->async_close(boost::asio::cancel_after(
+                boost::asio::chrono::milliseconds(300),
+                boost::asio::redirect_error(boost::asio::use_awaitable, close_ec)));
+        }
+        std::rethrow_exception(failure);
+    }
+    co_return std::nullopt;
+}
+
 boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<CancelOrderResult>>> TradeAccountRepository::async_cancel_order(
     uint64_t account_id, const std::string& client_order_id)
 {
@@ -489,7 +551,7 @@ boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<CancelOrderResu
             boost::mysql::with_params(
                 "insert into fund_ledger (account_id, order_id, entry_type, amount_cent) "
                 "values({}, {}, {}, {});",
-                account_id, order_id, LEDGER_ENTRY_TYPE::ORDER_CANCELLED, reserved_cent),
+                account_id, order_id, cast_type(LEDGER_ENTRY_TYPE::ORDER_CANCELLED), reserved_cent),
             result,
             boost::asio::cancel_at(deadline, boost::asio::redirect_error(boost::asio::use_awaitable, ec))
         );
@@ -520,7 +582,7 @@ boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<CancelOrderResu
             boost::mysql::with_params(
                 "insert into outbox_events (order_id, order_version, event_type, payload) "
                 "values({}, {}, {}, {});",
-                order_id, version, OUTBOX_EVENT_TYPE::OUTBOX_EVENT_CANCELLED, payload.dump()),
+                order_id, version, cast_type(OUTBOX_EVENT_TYPE::OUTBOX_EVENT_CANCELLED), payload.dump()),
             result,
             boost::asio::cancel_at(deadline, boost::asio::redirect_error(boost::asio::use_awaitable, ec))
         );
@@ -632,4 +694,176 @@ boost::asio::awaitable<std::vector<std::pair<uint64_t, trade::OrderState>>> Trad
         std::rethrow_exception(failure);
     }
     co_return res;
+}
+
+boost::asio::awaitable<void> TradeAccountRepository::async_dispatcher_refresh_data(std::unique_ptr<OrderRefreshPkg> refresh_pkg)
+{
+    if (refresh_pkg->unfreeze_cent < refresh_pkg->spent_cent) {
+        SPDLOG_ERROR("TradeAccountRepository async_dispatcher_refresh_data update date unnormal. OrderId:{} Unfreeze:{} Spent:{}",
+            refresh_pkg->order_id, refresh_pkg->unfreeze_cent, refresh_pkg->spent_cent);
+    }
+    auto deadline = boost::asio::chrono::steady_clock::now() + boost::asio::chrono::seconds(3);
+    // 保存连接状态，方便后续异常情况后结束连接
+    boost::mysql::pooled_connection conn;
+    std::exception_ptr failure;
+    bool closed_signal = false;
+    try {
+        conn = co_await pool_.async_get_connection(
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+        );
+        boost::mysql::results result;
+        co_await conn->async_execute("START TRANSACTION;", result,
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable));
+
+        // 查询获取orders表中单条记录
+        boost::mysql::error_code ec;
+        co_await conn->async_execute(
+            boost::mysql::with_params(
+                "SELECT account_id, client_order_id, symbol, limit_price_cent, quantity, reserved_cent, state, version FROM orders "
+                "WHERE order_id = {} FOR UPDATE;",
+                refresh_pkg->order_id),
+            result,
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+        );
+
+        if (result.rows().empty()) {
+            SPDLOG_ERROR("The dispacher handle order_id={} unexisted!", refresh_pkg->order_id);
+            co_return;
+        }
+
+        auto order = result.rows()[0];
+        auto state = order[6].as_uint64();
+        if (state == refresh_pkg->target_state) {
+            co_await conn->async_execute("ROLLBACK;", result,
+                boost::asio::cancel_at(deadline, boost::asio::use_awaitable));
+            co_return;
+        }
+        auto account_id = order[0].as_uint64();
+        auto client_order_id = std::string(order[1].as_string());
+        auto symbol = std::string(order[2].as_string());
+        auto limit_price_cent = order[3].as_uint64();
+        auto quantity = order[4].as_uint64();
+        auto reserved_cent = order[5].as_uint64();
+        auto version = order[7].as_uint64();
+        ++version;
+
+        co_await conn->async_execute(
+            boost::mysql::with_params(
+                "UPDATE orders SET state = {}, version = {} WHERE order_id = {};",
+                refresh_pkg->target_state, version, refresh_pkg->order_id),
+            result,
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+        );
+        if (result.affected_rows() != 1) {
+            co_await conn->async_execute("ROLLBACK;", result,
+                boost::asio::cancel_at(deadline, boost::asio::use_awaitable));
+            SPDLOG_WARN("TradeAccountRepository async_dispatcher_refresh_data update orders state for order_id[{}] affected_rows[{}] unnormal.",
+                refresh_pkg->order_id, result.affected_rows());
+            co_return;
+        }
+
+        if (refresh_pkg->ledger_type != LEDGER_ENTRY_TYPE::ORDER_NONE) {
+            uint64_t amount = 0;
+            if (refresh_pkg->ledger_type == LEDGER_ENTRY_TYPE::ORDER_CANCELLED ||
+                refresh_pkg->ledger_type == LEDGER_ENTRY_TYPE::ORDER_REJECTED) {
+                amount = refresh_pkg->unfreeze_cent;
+            }
+            if (refresh_pkg->ledger_type == LEDGER_ENTRY_TYPE::ORDER_FILLED) {
+                amount = refresh_pkg->spent_cent;
+            }
+            co_await conn->async_execute(
+                boost::mysql::with_params(
+                    "INSERT INTO fund_ledger (account_id, order_id, entry_type, amount_cent) VALUES ({}, {}, {}, {});",
+                    account_id, refresh_pkg->order_id, cast_type(refresh_pkg->ledger_type), amount),
+                result,
+                boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+            );
+            if (result.affected_rows() != 1) {
+                co_await conn->async_execute("ROLLBACK;", result,
+                    boost::asio::cancel_at(deadline, boost::asio::use_awaitable));
+                SPDLOG_WARN("TradeAccountRepository async_dispatcher_refresh_data insert fund_ledger record "
+                    "for order_id[{}] affected_rows[{}] unnormal.",
+                    refresh_pkg->order_id, result.affected_rows());
+                co_return;
+            }
+        }
+
+        if (refresh_pkg->outbox_type != OUTBOX_EVENT_TYPE::OUTBOX_EVENT_NONE) {
+            // 插入 outbox_events 撤单记录
+            nlohmann::ordered_json payload = {
+                {"account_id", account_id},
+                {"client_order_id", client_order_id},
+                {"symbol", symbol},
+                {"limit_price_cent", limit_price_cent},
+                {"quantity", quantity},
+                {"reserved_cent", reserved_cent},
+                {"state", static_cast<int>(refresh_pkg->target_state)}
+            };
+            co_await conn->async_execute(
+                boost::mysql::with_params(
+                    "INSERT INTO outbox_events (order_id, order_version, event_type, payload) "
+                    "VALUES({}, {}, {}, {});",
+                    refresh_pkg->order_id, version, cast_type(refresh_pkg->outbox_type), payload.dump()),
+                result,
+                boost::asio::cancel_at(deadline, boost::asio::redirect_error(boost::asio::use_awaitable, ec))
+            );
+            if (result.affected_rows() != 1) {
+                co_await conn->async_execute("ROLLBACK;", result,
+                    boost::asio::cancel_at(deadline, boost::asio::use_awaitable));
+                SPDLOG_WARN("TradeAccountRepository async_dispatcher_refresh_data insert outbox_events record "
+                    "for order_id[{}] affected_rows[{}] unnormal.",
+                    refresh_pkg->order_id, result.affected_rows());
+                co_return;
+            }
+        }
+
+        if (refresh_pkg->target_state == trade::OrderState::ORDER_STATE_FILLED ||
+            refresh_pkg->target_state == trade::OrderState::ORDER_STATE_CANCELLED ||
+            refresh_pkg->target_state == trade::OrderState::ORDER_STATE_REJECTED) {
+            co_await conn->async_execute(
+                boost::mysql::with_params(
+                    "UPDATE accounts SET available_cent = available_cent + {}, frozen_cent = frozen_cent - {}, "
+                    "spent_cent = spent_cent + {} WHERE account_id = {} AND frozen_cent >= {};",
+                    refresh_pkg->unfreeze_cent - refresh_pkg->spent_cent,
+                    refresh_pkg->unfreeze_cent, refresh_pkg->spent_cent,
+                    account_id, refresh_pkg->unfreeze_cent),
+                result,
+                boost::asio::cancel_at(deadline, boost::asio::use_awaitable)
+            );
+            if (result.affected_rows() != 1) {
+                co_await conn->async_execute("ROLLBACK;", result,
+                    boost::asio::cancel_at(deadline, boost::asio::use_awaitable));
+                SPDLOG_WARN("TradeAccountRepository async_dispatcher_refresh_data update accounts state for accountId[{}] affected_rows[{}] unnormal.",
+                    account_id, result.affected_rows());
+                co_return;
+            }
+        }
+        
+        co_await conn->async_execute("COMMIT;", result,
+            boost::asio::cancel_at(deadline, boost::asio::use_awaitable));
+    } catch (const boost::mysql::error_with_diagnostics& diag) {
+        failure = std::current_exception();
+        closed_signal = boost::mysql::is_fatal_error(diag.code());
+        SPDLOG_ERROR("MySQL error: {}.", diag.what());
+        SPDLOG_ERROR("Server message: {}", diag.get_diagnostics().server_message());
+    } catch (const boost::system::system_error& e) {
+        failure = std::current_exception();
+        SPDLOG_ERROR("mysql system_error failed: {}", e.what());
+        closed_signal = true;
+    } catch (const std::exception& e) {
+        failure = std::current_exception();
+        closed_signal = true;
+        SPDLOG_ERROR("mysql exception failed: {}", e.what());
+    }
+    if (failure) {
+        if (conn.valid() && closed_signal) {
+            // 判断为需要清理连接类型的异常错误
+            boost::mysql::error_code close_ec;
+            co_await conn->async_close(boost::asio::cancel_after(
+                boost::asio::chrono::milliseconds(300),
+                boost::asio::redirect_error(boost::asio::use_awaitable, close_ec)));
+        }
+        std::rethrow_exception(failure);
+    }
+    co_return;
 }

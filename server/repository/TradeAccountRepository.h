@@ -20,6 +20,7 @@
 #include <boost/system/system_error.hpp>
 #include <cstdint>
 #include <grpcpp/support/status.h>
+#include <memory>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -56,14 +57,43 @@ struct CancelOrderResult {
     trade::OrderState order_state;;
 };
 
-namespace LEDGER_ENTRY_TYPE {
-    constexpr static uint8_t ORDER_FREEZE       = 1;
-    constexpr static uint8_t ORDER_CANCELLED    = 2;
+enum class LEDGER_ENTRY_TYPE : uint8_t {
+    ORDER_NONE          = 0,
+    ORDER_FREEZE        = 1,
+    ORDER_CANCELLED     = 2,
+    ORDER_FILLED        = 3,
+    ORDER_REJECTED      = 4
 };
 
-namespace OUTBOX_EVENT_TYPE {
-    constexpr static uint8_t OUTBOX_EVENT_RECEIVED  = 1;
-    constexpr static uint8_t OUTBOX_EVENT_CANCELLED = 2;
+enum class OUTBOX_EVENT_TYPE : uint8_t {
+    OUTBOX_EVENT_NONE           = 0, 
+    OUTBOX_EVENT_RECEIVED       = 1,
+    OUTBOX_EVENT_CANCELLED      = 2,
+    OUTBOX_EVENT_DISPATCHED     = 3,
+    OUTBOX_EVENT_REJECTED       = 4,
+    OUTBOX_EVENT_FILLED         = 5
+};
+
+template<typename T>
+constexpr inline uint8_t cast_type(T Type) {
+    return static_cast<uint8_t>(Type);
+}
+
+// OrderDispatch 通知修改本地表
+struct OrderRefreshPkg {
+    uint64_t order_id;          // 刷新订单ID
+    uint64_t unfreeze_cent = 0; // 解除冻结金额
+    uint64_t spent_cent    = 0; // 已扣除的花费金额
+    trade::OrderState target_state;
+    LEDGER_ENTRY_TYPE ledger_type;
+    OUTBOX_EVENT_TYPE outbox_type;
+};
+
+struct OrderSubmitBrief {
+    uint64_t account_id;
+    uint64_t limit_price_cent;
+    uint64_t quantity;
+    std::string symbol;
 };
 
 class TradeAccountRepository {
@@ -84,5 +114,7 @@ public:
         uint64_t account_id, const std::string& client_order_id);
     boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<CancelOrderResult>>> async_cancel_order(
         uint64_t account_id, const std::string& client_order_id);
+    boost::asio::awaitable<std::optional<OrderSubmitBrief>> async_get_order_submit_brief(uint64_t order_id);
     boost::asio::awaitable<std::vector<std::pair<uint64_t, trade::OrderState>>> async_list_handle_order(uint16_t limit);
+    boost::asio::awaitable<void> async_dispatcher_refresh_data(std::unique_ptr<OrderRefreshPkg> refresh_pkg);
 };

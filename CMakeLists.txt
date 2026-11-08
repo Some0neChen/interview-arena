@@ -11,6 +11,9 @@ find_package(gRPC CONFIG REQUIRED)
 # 获取本机spdlog
 find_package(spdlog REQUIRED)
 # 获取本机Boost, 1.88.0 mysql扩展了连接池
+if(NOT DEFINED Boost_ROOT AND NOT DEFINED BOOST_ROOT)
+    set(Boost_ROOT "$ENV{HOME}/.local/boost-1.88.0")
+endif()
 find_package(Boost 1.88.0 CONFIG REQUIRED COMPONENTS charconv)
 # 获取SSL连接库
 find_package(OpenSSL REQUIRED)

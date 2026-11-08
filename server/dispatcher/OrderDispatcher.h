@@ -4,6 +4,7 @@
 #include "BrokerClient.h"
 #include "TradeAccountRepository.h"
 #include "trade_account.pb.h"
+#include "trade_broker.pb.h"
 #include <array>
 #include <atomic>
 #include <boost/asio/awaitable.hpp>
@@ -39,11 +40,14 @@ class OrderDispatcher {
     std::future<void> stop_sync_wait_;
     std::atomic<bool> running_;
 
+    void applay_broker_response(uint64_t order_id, std::unique_ptr<OrderRefreshPkg>& pkg,
+        broker::GetBrokerOrderResponse& reponse);
+
     using DispatchHandleFunc = boost::asio::awaitable<void>(OrderDispatcher::*)(uint64_t);
     boost::asio::awaitable<void> dispatch_local_accepted_order(uint64_t order_id);
     boost::asio::awaitable<void> dispatch_dispatching_order(uint64_t order_id);
     boost::asio::awaitable<void> dispatch_canceld_order(uint64_t order_id);
-    static inline constexpr auto dispatcher_handle = []() consteval {
+    static inline constexpr auto dispatcher_handle_ = []() consteval {
         std::array<DispatchHandleFunc, trade::OrderState_ARRAYSIZE> table{};
         table[trade::OrderState::ORDER_STATE_LOCAL_ACCEPTED]    = &OrderDispatcher::dispatch_local_accepted_order;
         table[trade::OrderState::ORDER_STATE_DISPATCHING]       = &OrderDispatcher::dispatch_dispatching_order;
@@ -52,8 +56,6 @@ class OrderDispatcher {
     }();
 
     boost::asio::awaitable<void> run_loop();
-
-    
 
     static constexpr auto kOrderDispatcherExecuteInterval = std::chrono::milliseconds(300);
     static constexpr uint16_t kOrderDispatcherDefaultHandleOrderLimit = 32;
