@@ -40,7 +40,14 @@ add_executable(arena_client InterviewArena/client_main.cpp)
 target_include_directories(arena_client PRIVATE ${PUB_INCLUDE_DIR})
 target_link_libraries(arena_client PRIVATE
     spdlog::spdlog
-    arena_proto
+    broker_submit_smoke
+)
+
+add_executable(broker_submit_smoke broker_submit_smoke.cpp)
+target_include_directories(broker_submit_smoke PRIVATE ${PUB_INCLUDE_DIR})
+target_link_libraries(broker_submit_smoke PRIVATE
+    spdlog::spdlog
+    trade_broker_proto
 )
 
 add_executable(code_test interview_test.cpp)

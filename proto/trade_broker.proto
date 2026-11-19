@@ -13,11 +13,11 @@ message SubmitOrderRequest {
 }
 
 enum BrokerOrderState {
-    BROKER_ORDER_STATE_UNSPECIFIED  = 0; // 未赋值，不作为有效订单状态落库
-    BROKER_ORDER_STATE_ACCEPTED     = 1; // 已接收，尚未成交
-    BROKER_ORDER_STATE_FILLED       = 2; // 已全量成交
-    BROKER_ORDER_STATE_REJECTED     = 3; // 已明确拒绝
-    BROKER_ORDER_STATE_CANCELLED    = 4; // 已成功撤销
+    BROKER_ORDER_STATE_UNSPECIFIED      = 0; // 未赋值，不作为有效订单状态落库
+    BROKER_ORDER_STATE_ACCEPTED         = 1; // 已接收，尚未成交
+    BROKER_ORDER_STATE_FILLED           = 2; // 已全量成交
+    BROKER_ORDER_STATE_REJECTED         = 3; // 已明确拒绝
+    BROKER_ORDER_STATE_CANCELLED        = 4; // 已成功撤销
 }
 
 // 券商回复当前派单结果

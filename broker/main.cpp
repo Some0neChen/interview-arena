@@ -7,6 +7,7 @@
 #include <spdlog/spdlog.h>
 #include "TradeBrokerServiceImpl.h"
 #include "log_init.h"
+#include "BrokerExecutionWoker.h"
 
 std::unique_ptr<grpc::Server> g_server;
 
@@ -51,6 +52,8 @@ int main(int argc, char** argv)
 
     // 创建 account 数据库管理类
     auto account_repository = create_mysql_account_mgr(runtime->get_io_context());
+    // 创建后台扫单器
+    auto broker_execution_worker = BrokerExecutionWoker(runtime.get(), account_repository.get());
 
     // 创建 account 表管理服务
     auto broker_service_handle = std::make_unique<TradeBrokerServiceImpl>(&runtime->get_io_context(), account_repository.get());
@@ -75,15 +78,18 @@ int main(int argc, char** argv)
     builder.SetMaxMessageSize(4 * 1024 * 1024);
 
     g_server = builder.BuildAndStart();
+    // 启动后台扫单器
+    broker_execution_worker.start();
     SPDLOG_INFO("[Server] Server listening on {}", server_address);
     // 用线程处理进程退出信号接收与处理
-    std::thread signal_handle_thread([&stop_signals, &account_repository, &runtime]() {
+    std::thread signal_handle_thread([&stop_signals, &account_repository, &runtime, &broker_execution_worker]() {
         int signal = 0;
         // 同步等待信号触发后执行
         if (sigwait(&stop_signals, &signal) == 0) {
             // 关闭服务端
             // 给予三秒延三秒到期后取消剩余gRPC任务，对有定时等待的任务超过3s后也执行cancel
             g_server->Shutdown(boost::asio::chrono::system_clock::now() +  boost::asio::chrono::seconds(3));
+            broker_execution_worker.stop();
             account_repository->stop();
             runtime->stop();
         }

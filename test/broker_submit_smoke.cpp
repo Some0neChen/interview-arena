@@ -1,5 +1,4 @@
 #include "trade_broker.grpc.pb.h"
-
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -9,7 +8,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-
 #include <grpcpp/grpcpp.h>
 #include <nlohmann/json.hpp>
 
@@ -17,7 +15,8 @@ namespace {
 std::uint64_t parse_number(std::string_view text) {
     std::uint64_t value = 0;
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (error != std::errc{} || end != text.data() + text.size()) {
+    if (error != std::
+        errc{} || end != text.data() + text.size()) {
         throw std::invalid_argument("Expected an unsigned integer: " + std::string(text));
     }
     return value;
@@ -92,7 +91,7 @@ int main(int argc, char** argv) {
         broker::SubmitOrderRequest request;
         request.set_gateway_namespace(argv[2]);
         request.set_gateway_order_id(parse_number(argv[3]));
-        request.set_account_it(parse_number(argv[4]));  // Current proto spelling.
+        request.set_account_id(parse_number(argv[4]));
         request.set_symbol(argv[5]);
         request.set_limit_price_cent(parse_number(argv[6]));
         request.set_quantity(parse_number(argv[7]));

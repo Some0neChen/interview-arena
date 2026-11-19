@@ -22,8 +22,14 @@
 #include <cstdint>
 #include <future>
 #include <memory>
+#include <optional>
 #include <spdlog/spdlog.h>
 #include <string>
+
+struct LocalSubmitResult {
+    OrderSubmitBrief brief_info;
+    BrokerSubmitOrderResult broker_info;
+};
 
 // 订单服务中的后台扫描器
 // 主流程先 start，返回后才允许 stop，二者不并发调用
@@ -40,18 +46,22 @@ class OrderDispatcher {
     std::future<void> stop_sync_wait_;
     std::atomic<bool> running_;
 
-    void applay_broker_response(uint64_t order_id, std::unique_ptr<OrderRefreshPkg>& pkg,
+    bool apply_broker_response(uint64_t order_id, OrderRefreshPkg& pkg,
         broker::GetBrokerOrderResponse& reponse);
+    boost::asio::awaitable<std::optional<LocalSubmitResult>> async_submit_local_order(uint64_t order_id, bool fresh_order_state = true);
+    bool validate_broker_feedback(uint64_t order_id, const broker::GetBrokerOrderResponse& response);
+    void format_broker_term(OrderRefreshPkg& pkg, broker::GetBrokerOrderResponse& response);
 
-    using DispatchHandleFunc = boost::asio::awaitable<void>(OrderDispatcher::*)(uint64_t);
-    boost::asio::awaitable<void> dispatch_local_accepted_order(uint64_t order_id);
-    boost::asio::awaitable<void> dispatch_dispatching_order(uint64_t order_id);
-    boost::asio::awaitable<void> dispatch_canceld_order(uint64_t order_id);
+    using DispatchHandleFunc = boost::asio::awaitable<RET_CODE>(OrderDispatcher::*)(uint64_t);
+    boost::asio::awaitable<RET_CODE> dispatch_local_accepted_order(uint64_t order_id);
+    boost::asio::awaitable<RET_CODE> dispatch_dispatching_order(uint64_t order_id);
+    boost::asio::awaitable<RET_CODE> dispatch_cancelled_order(uint64_t order_id);
     static inline constexpr auto dispatcher_handle_ = []() consteval {
         std::array<DispatchHandleFunc, trade::OrderState_ARRAYSIZE> table{};
         table[trade::OrderState::ORDER_STATE_LOCAL_ACCEPTED]    = &OrderDispatcher::dispatch_local_accepted_order;
         table[trade::OrderState::ORDER_STATE_DISPATCHING]       = &OrderDispatcher::dispatch_dispatching_order;
-        table[trade::OrderState::ORDER_STATE_CANCELLED]         = &OrderDispatcher::dispatch_canceld_order;
+        table[trade::OrderState::ORDER_STATE_CANCEL_PENDING]    = &OrderDispatcher::dispatch_cancelled_order;
+        table[trade::OrderState::ORDER_STATE_BROKER_ACCEPTED]   = &OrderDispatcher::dispatch_dispatching_order;
         return table;
     }();
 

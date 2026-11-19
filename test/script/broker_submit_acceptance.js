@@ -196,6 +196,8 @@ async function main() {
         // This controlled fixture contains one SET NAMES and one INSERT; not a generic SQL parser.
         const seed = fs.readFileSync(path.join(root, 'sql/broker_instruments_seed.sql'), 'utf8');
         for (const statement of seed.replace(/^\s*--.*$/gm, '').split(';').map(s => s.trim()).filter(Boolean)) sql(statement);
+        // These API checks need an open order. The worker now fills marketable buys.
+        sql("UPDATE broker_instruments SET simulated_price_cent=1000 WHERE symbol='SIM.APPLE'");
         report.schema_collation = sql(`SELECT COLLATION_NAME FROM information_schema.columns WHERE TABLE_SCHEMA='${database}' AND TABLE_NAME='broker_orders' AND COLUMN_NAME='gateway_namespace'`, '');
         await startServer();
 
@@ -252,14 +254,23 @@ async function main() {
             expectReply(await call(req), 0, 1);
             assert.equal(row(req).filled, 0);
         });
-        await check('instrument disabled later does not rewrite an existing order', async () => {
-            const before = row(base);
-            sql("UPDATE broker_instruments SET enabled=FALSE WHERE symbol='SIM.APPLE'");
+        await check('disabling a symbol rejects an open order; replay preserves its ID and terminal snapshot', async () => {
+            const req = request({order: '206', symbol: 'SIM.MICROSOFT'});
+            const open = await call(req);
+            expectReply(open, 0, 1);
+            sql("UPDATE broker_instruments SET enabled=FALSE WHERE symbol='SIM.MICROSOFT'");
             try {
-                expectReply(await call(base), 0, 1);
-                assert.deepEqual(row(base), before);
-                expectReply(await call(request({ order: '203' })), 0, 3);
-            } finally { sql("UPDATE broker_instruments SET enabled=TRUE WHERE symbol='SIM.APPLE'"); }
+                const until = Date.now() + 8000;
+                while (row(req).state === 1 && Date.now() < until) await sleep(100);
+                const rejected = row(req);
+                assert.equal(rejected.state, 3);
+                assert.equal(rejected.version, 2);
+                const replay = await call(req);
+                expectReply(replay, 0, 3);
+                assert.equal(replay.broker_order_id, open.broker_order_id);
+                assert.deepEqual(row(req), rejected);
+                expectReply(await call({...req, order: '203'}), 0, 3);
+            } finally { sql("UPDATE broker_instruments SET enabled=TRUE WHERE symbol='SIM.MICROSOFT'"); }
         });
         await check('different namespaces may reuse the gateway order number', async () => {
             const reply = await call(request({ namespace: 'review-other' }));

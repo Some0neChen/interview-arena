@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 struct SubmitOrderRequest {
     std::string gateway_namespace;
@@ -56,6 +57,8 @@ class TradeBrokerRepository
     boost::asio::strand<boost::asio::io_context::executor_type> strand_;
     boost::mysql::connection_pool pool_;
 
+    uint64_t scan_after_id_ = 0;
+    uint64_t scan_upper_id_ = 0;
 public:
     TradeBrokerRepository(boost::mysql::pool_params params, boost::asio::io_context& ioc);
     ~TradeBrokerRepository();
@@ -65,4 +68,6 @@ public:
     boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<SubmitOrderResponse>>> async_submit_order(SubmitOrderRequest request);
     boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<BrokerOrderInfo>>> async_get_order(BrokerOrderClintId request);
     boost::asio::awaitable<std::pair<grpc::StatusCode, std::optional<BrokerOrderInfo>>> async_cancel_order(BrokerOrderClintId request);
+    boost::asio::awaitable<std::vector<std::pair<uint64_t, broker::BrokerOrderState>>> async_list_handle_order(uint64_t limit);
+    boost::asio::awaitable<void> async_try_fill_order(uint64_t order_id, broker::BrokerOrderState original_state);
 };
